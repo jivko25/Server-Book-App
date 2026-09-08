@@ -13,10 +13,13 @@ from app.config import (
 
 SUMMARY_SYSTEM_INSTRUCTION = (
     "You are a literary assistant for FOLIO, a premium audiobook app. "
-    "Write concise chapter summaries in elegant literary prose."
+    "Write concise chapter summaries in elegant literary prose. "
+    "Always write the summary in the same language as the chapter text."
 )
 
 SUMMARY_USER_TEMPLATE = """Summarize this audiobook chapter in 2–4 sentences of literary prose.
+Write the summary in the same language as the chapter text below
+(e.g. Bulgarian text → Bulgarian summary, English text → English summary).
 Use third person past tense. No bullet points, headings, or meta commentary.
 Output only the summary text.
 
