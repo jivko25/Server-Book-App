@@ -2,14 +2,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import ALLOWED_ORIGINS
-from app.routers import health, summary
+from app.middleware.rate_limit import RulitRateLimitMiddleware
+from app.routers import health, rulit, summary
 
 app = FastAPI(
-    title="FOLIO Summary API",
-    description="Thin proxy for AI chapter summaries in the FOLIO audiobook app.",
-    version="1.0.0",
+    title="FOLIO Backend API",
+    description="Backend proxy for the FOLIO audiobook app (AI summaries + rulit catalog).",
+    version="1.1.0",
 )
 
+app.add_middleware(RulitRateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -20,6 +22,7 @@ app.add_middleware(
 
 app.include_router(health.router, prefix="/api")
 app.include_router(summary.router, prefix="/api")
+app.include_router(rulit.router, prefix="/api")
 
 
 @app.get("/")

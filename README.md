@@ -1,51 +1,83 @@
-# FOLIO Summary API
+# FOLIO Backend API
 
-Thin Python backend proxy for the [FOLIO](https://github.com/) React Native audiobook app. Accepts chapter text from the mobile client and returns a short AI-generated literary summary via Gemini — keeping the API key server-side only.
+Python backend for the FOLIO React Native audiobook app:
+
+- **AI summaries** — Gemini proxy (`POST /api/summary`)
+- **Rulit catalog** — metadata + download URLs (`GET /api/rulit/*`)
+
+Deployable on **Vercel** (Hobby / free tier). Does **not** host or store EPUB files.
+
+Production URL: `https://book-app-bice-phi.vercel.app`
 
 ## Stack
 
 - Python 3.11+
 - FastAPI + Uvicorn
-- `google-genai` SDK
-- Deployable on **Vercel** (Hobby / free tier)
+- `google-genai` SDK (summaries)
+- `httpx` + `BeautifulSoup4` (rulit scrape)
 
 ## Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/health` | Health check + configured model |
-| `POST` | `/api/summary` | Generate chapter summary |
+| `GET` | `/api/health` | Health check |
+| `POST` | `/api/summary` | AI chapter summary |
+| `GET` | `/api/rulit/catalog` | Browse rulit catalog |
+| `GET` | `/api/rulit/search?q=` | Search rulit books |
+| `GET` | `/api/rulit/books/{id}` | Book detail + download metadata |
+| `GET` | `/api/rulit/books/{id}/download-url` | EPUB download URL |
 | `GET` | `/docs` | Swagger UI |
 
-### `POST /api/summary`
+### Rulit catalog
 
-**Request**
+```
+GET /api/rulit/catalog?lang=bg&page=1&sort=date&format=epub&genre=science-fiction
+GET /api/rulit/search?q=хамлет&lang=bg&page=1
+GET /api/rulit/books/319132
+GET /api/rulit/books/319132/download-url?format=epub&resolve=false
+```
+
+All errors use FastAPI format: `{ "detail": "human readable message" }`
+
+| Status | Meaning |
+|--------|---------|
+| `404` | Book not found |
+| `422` | Invalid query/path params |
+| `429` | Rate limited (rulit routes) |
+| `502` | Rulit unreachable or HTML parse failed |
+
+### AI summary
 
 ```json
+POST /api/summary
 {
-  "chapter_text": "Full chapter text here…",
+  "chapter_text": "...",
   "book_title": "Hamlet",
   "chapter_title": "The Ghost Appears",
   "chapter_numeral": "Act I"
 }
 ```
 
-**Response**
+Summary is returned in the **same language** as `chapter_text`.
 
-```json
-{
-  "summary": "Upon Elsinore's frost-bitten battlements…"
-}
-```
+## Environment variables
 
-**Errors**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GEMINI_API_KEY` | — | Required for `/api/summary` |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite` | Gemini model |
+| `ALLOWED_ORIGINS` | `*` | CORS origins (comma-separated) |
+| `RULIT_BASE_URL` | `https://www.rulit.me` | Rulit base URL |
+| `RULIT_CACHE_TTL_SECONDS` | `1800` | In-memory cache TTL (15–60 min) |
+| `RULIT_RATE_LIMIT_PER_MINUTE` | `30` | Per-IP limit on `/api/rulit/*` |
+| `RULIT_REQUEST_TIMEOUT_SECONDS` | `10` | Upstream scrape timeout |
 
-| Status | Meaning |
-|--------|---------|
-| `429` | Gemini free-tier quota exceeded |
-| `401` / `403` | Invalid or unauthorized API key |
-| `502` | Upstream Gemini failure |
-| `503` | `GEMINI_API_KEY` not configured |
+## Cache behavior
+
+- Catalog, search, book detail, and download URL responses are cached in memory
+- TTL defaults to 30 minutes (`RULIT_CACHE_TTL_SECONDS=1800`)
+- Book page URLs discovered from list/search are cached for faster detail lookups
+- On Vercel serverless, cache is per-instance (still reduces scrape load significantly)
 
 ## Local development
 
@@ -54,52 +86,36 @@ cd Server-Book-App
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env        # add your GEMINI_API_KEY
+cp .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
 
-Test:
+Run tests (mocked HTML fixtures — no live scrape in CI):
 
 ```bash
-curl -X POST http://localhost:8000/api/summary \
-  -H "Content-Type: application/json" \
-  -d '{"chapter_text": "The ghost of the late king appeared on the battlements. Horatio and the guards were terrified. They resolved to tell young Hamlet."}'
+pytest
 ```
 
-## Deploy on Vercel (zero budget)
+## Deploy on Vercel
 
-1. Push this repo to GitHub
-2. Import project in [Vercel](https://vercel.com) (Hobby plan is free)
-3. Add environment variable: `GEMINI_API_KEY`
-4. Deploy — Vercel auto-detects FastAPI via `app/main.py`
+1. Push to GitHub
+2. Import in Vercel (Hobby plan)
+3. Set `GEMINI_API_KEY` (+ optional vars above)
+4. Deploy — zero-config FastAPI via `app/main.py`
 
-Optional env vars in Vercel dashboard: `GEMINI_MODEL`, `ALLOWED_ORIGINS`.
-
-## Gemini configuration
-
-| Setting | Default |
-|---------|---------|
-| Model | `gemini-3.1-flash-lite` |
-| Temperature | `0` |
-| Thinking | disabled (`thinking_budget=0` / `thinking_level=minimal`) |
-| Max output tokens | `512` |
-| SDK retries | `1` attempt (no hidden retry storms on quota) |
-
-## Mobile app integration (phase 3)
-
-Point the React Native client at your deployed URL:
+## Mobile integration
 
 ```typescript
-const response = await fetch(`${API_BASE_URL}/api/summary`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    chapter_text: chapter.content,
-    book_title: book.title,
-    chapter_title: chapter.title,
-    chapter_numeral: chapter.numeral,
-  }),
-});
+// Catalog browse
+const res = await fetch(`${API_BASE_URL}/api/rulit/catalog?page=1&lang=bg`);
+const { items } = await res.json();
+
+// Import flow — mobile downloads EPUB itself
+const dl = await fetch(`${API_BASE_URL}/api/rulit/books/${id}/download-url`);
+const { url, fileName } = await dl.json();
+// PendingImport { uri: url, format: 'epub', fileName }
 ```
 
-Cache summaries locally in AsyncStorage to minimize API calls on the free tier.
+## Legal note
+
+Rulit content may be copyrighted. This API is a **metadata proxy** for personal use in the FOLIO app. The mobile client should display a disclaimer. Production may require a licensed catalog later.

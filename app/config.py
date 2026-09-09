@@ -24,3 +24,15 @@ ALLOWED_ORIGINS: list[str] = (
     if _allowed_origins_raw == "*"
     else [origin.strip() for origin in _allowed_origins_raw.split(",") if origin.strip()]
 )
+
+RULIT_BASE_URL: str = os.getenv("RULIT_BASE_URL", "https://www.rulit.me").rstrip("/")
+RULIT_USER_AGENT: str = os.getenv(
+    "RULIT_USER_AGENT",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 FOLIO/1.0",
+).strip()
+RULIT_CACHE_TTL_SECONDS: int = _env_int("RULIT_CACHE_TTL_SECONDS", 1800)
+RULIT_RATE_LIMIT_PER_MINUTE: int = _env_int("RULIT_RATE_LIMIT_PER_MINUTE", 30)
+RULIT_REQUEST_TIMEOUT_SECONDS: float = float(
+    os.getenv("RULIT_REQUEST_TIMEOUT_SECONDS", "10")
+)
