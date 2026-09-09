@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from app.config import RAG_CHUNK_OVERLAP, RAG_CHUNK_SIZE, RAG_MAX_BOOK_CHARS
+from app.config import RAG_CHUNK_OVERLAP, RAG_CHUNK_SIZE, RAG_MAX_BATCH_CHARS
 from app.services.gemini import (
     GeminiAuthError,
     GeminiConfigurationError,
@@ -22,8 +22,12 @@ class RagIndexError(Exception):
     """Base error for indexing failures."""
 
 
-class RagBookTooLargeError(RagIndexError):
-    """Raised when book text exceeds configured limits."""
+class RagBatchTooLargeError(RagIndexError):
+    """Raised when a single batch exceeds configured limits."""
+
+
+class RagIndexNotFoundError(RagIndexError):
+    """Raised when indexing was never started for a book."""
 
 
 class RagIndexFailedError(RagIndexError):
@@ -32,29 +36,47 @@ class RagIndexFailedError(RagIndexError):
         self.book_id = book_id
 
 
+def _batch_char_count(chapters: list[dict]) -> int:
+    return sum(len(chapter["content"]) for chapter in chapters)
+
+
+def _validate_batch_size(chapters: list[dict]) -> None:
+    if _batch_char_count(chapters) > RAG_MAX_BATCH_CHARS:
+        raise RagBatchTooLargeError(
+            f"Batch exceeds max size of {RAG_MAX_BATCH_CHARS} characters. "
+            "Send fewer or shorter chapters per batch."
+        )
+
+
 def _mark_book_failed(book_id: str, title: str, message: str) -> None:
-    client = get_supabase_client()
-    row = {
-        "id": book_id,
-        "title": title,
-        "status": "failed",
-        "passage_count": 0,
-    }
-    client.table("rag_books").upsert(row).execute()
-    logger.error("RAG index failed for %s: %s", book_id, message[:500])
-
-
-def _set_book_indexing(book_id: str, title: str) -> None:
     client = get_supabase_client()
     client.table("rag_books").upsert(
         {
             "id": book_id,
             "title": title,
-            "status": "indexing",
+            "status": "failed",
             "passage_count": 0,
         }
     ).execute()
-    client.table("rag_passages").delete().eq("book_id", book_id).execute()
+    logger.error("RAG index failed for %s: %s", book_id, message[:500])
+
+
+def _count_passages(book_id: str) -> int:
+    client = get_supabase_client()
+    result = (
+        client.table("rag_passages")
+        .select("id", count="exact")
+        .eq("book_id", book_id)
+        .execute()
+    )
+    return result.count or 0
+
+
+def _get_book_row(book_id: str) -> dict | None:
+    client = get_supabase_client()
+    result = client.table("rag_books").select("*").eq("id", book_id).limit(1).execute()
+    rows = result.data or []
+    return rows[0] if rows else None
 
 
 def _insert_passages(book_id: str, chunks: list[TextChunk], vectors: list[list[float]]) -> None:
@@ -77,25 +99,112 @@ def _insert_passages(book_id: str, chunks: list[TextChunk], vectors: list[list[f
         client.table("rag_passages").insert(batch).execute()
 
 
-def _mark_book_ready(book_id: str, title: str, passage_count: int) -> None:
+def _update_passage_count(book_id: str, passage_count: int) -> None:
+    client = get_supabase_client()
+    client.table("rag_books").update({"passage_count": passage_count}).eq(
+        "id", book_id
+    ).execute()
+
+
+def start_index(*, book_id: str, title: str) -> dict:
+    client = get_supabase_client()
+    client.table("rag_books").upsert(
+        {
+            "id": book_id,
+            "title": title,
+            "status": "indexing",
+            "passage_count": 0,
+        }
+    ).execute()
+    client.table("rag_passages").delete().eq("book_id", book_id).execute()
+    return {"bookId": book_id, "title": title, "status": "indexing"}
+
+
+def index_batch(*, book_id: str, chapters: list[dict]) -> dict:
+    _validate_batch_size(chapters)
+
+    book = _get_book_row(book_id)
+    if book is None:
+        raise RagIndexNotFoundError("Book index not found. Call /index/start first.")
+    if book.get("status") not in ("indexing", "ready"):
+        raise RagIndexFailedError(
+            f"Book index is {book.get('status')}", book_id=book_id
+        )
+
+    title = book["title"]
+    try:
+        chunks = chunk_book(
+            chapters,
+            chunk_size=RAG_CHUNK_SIZE,
+            chunk_overlap=RAG_CHUNK_OVERLAP,
+        )
+        if not chunks:
+            return {
+                "bookId": book_id,
+                "batchPassageCount": 0,
+                "totalPassageCount": _count_passages(book_id),
+                "status": "indexing",
+            }
+
+        vectors = embed_passages([chunk.text for chunk in chunks])
+        _insert_passages(book_id, chunks, vectors)
+
+        total = _count_passages(book_id)
+        _update_passage_count(book_id, total)
+
+        return {
+            "bookId": book_id,
+            "batchPassageCount": len(chunks),
+            "totalPassageCount": total,
+            "status": "indexing",
+        }
+    except (
+        GeminiConfigurationError,
+        GeminiQuotaError,
+        GeminiAuthError,
+        GeminiUpstreamError,
+        RagBatchTooLargeError,
+    ):
+        raise
+    except Exception as exc:
+        logger.exception("RAG batch indexing failed for book %s", book_id)
+        _mark_book_failed(book_id, title, str(exc))
+        raise RagIndexFailedError(str(exc), book_id=book_id) from exc
+
+
+def complete_index(*, book_id: str) -> dict:
+    book = _get_book_row(book_id)
+    if book is None:
+        raise RagIndexNotFoundError("Book index not found. Call /index/start first.")
+
+    title = book["title"]
+    total = _count_passages(book_id)
+    if total == 0:
+        _mark_book_failed(book_id, title, "No passages indexed")
+        raise RagIndexFailedError("No passages indexed", book_id=book_id)
+
     client = get_supabase_client()
     client.table("rag_books").upsert(
         {
             "id": book_id,
             "title": title,
             "status": "ready",
-            "passage_count": passage_count,
+            "passage_count": total,
         }
     ).execute()
 
+    return {
+        "bookId": book_id,
+        "title": title,
+        "passageCount": total,
+        "status": "ready",
+    }
+
 
 def get_index_status(book_id: str) -> dict | None:
-    client = get_supabase_client()
-    result = client.table("rag_books").select("*").eq("id", book_id).limit(1).execute()
-    rows = result.data or []
-    if not rows:
+    row = _get_book_row(book_id)
+    if row is None:
         return None
-    row = rows[0]
     return {
         "bookId": row["id"],
         "title": row["title"],
@@ -106,43 +215,13 @@ def get_index_status(book_id: str) -> dict | None:
 
 
 def index_book(*, book_id: str, title: str, chapters: list[dict]) -> dict:
-    total_chars = sum(len(chapter["content"]) for chapter in chapters)
-    if total_chars > RAG_MAX_BOOK_CHARS:
-        raise RagBookTooLargeError(
-            f"Book exceeds max size of {RAG_MAX_BOOK_CHARS} characters"
-        )
+    """Legacy single-shot index — delegates to batch flow."""
 
-    _set_book_indexing(book_id, title)
+    start_index(book_id=book_id, title=title)
 
-    try:
-        chunks = chunk_book(
-            chapters,
-            chunk_size=RAG_CHUNK_SIZE,
-            chunk_overlap=RAG_CHUNK_OVERLAP,
-        )
-        if not chunks:
-            raise RagIndexFailedError("No text chunks produced", book_id=book_id)
+    batch_size = 5
+    for offset in range(0, len(chapters), batch_size):
+        batch = chapters[offset : offset + batch_size]
+        index_batch(book_id=book_id, chapters=batch)
 
-        vectors = embed_passages([chunk.text for chunk in chunks])
-        _insert_passages(book_id, chunks, vectors)
-        _mark_book_ready(book_id, title, len(chunks))
-
-        return {
-            "bookId": book_id,
-            "title": title,
-            "passageCount": len(chunks),
-            "status": "ready",
-        }
-    except (
-        GeminiConfigurationError,
-        GeminiQuotaError,
-        GeminiAuthError,
-        GeminiUpstreamError,
-        RagIndexFailedError,
-        RagBookTooLargeError,
-    ):
-        raise
-    except Exception as exc:
-        logger.exception("RAG indexing failed for book %s", book_id)
-        _mark_book_failed(book_id, title, str(exc))
-        raise RagIndexFailedError(str(exc), book_id=book_id) from exc
+    return complete_index(book_id=book_id)
