@@ -39,3 +39,11 @@ RULIT_REQUEST_TIMEOUT_SECONDS: float = float(
 
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
 SUPABASE_SECRET_KEY: str = os.getenv("SUPABASE_SECRET_KEY", "").strip()
+
+GEMINI_EMBEDDING_MODEL: str = os.getenv(
+    "GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"
+).strip()
+RAG_CHUNK_SIZE: int = _env_int("RAG_CHUNK_SIZE", 800)
+RAG_CHUNK_OVERLAP: int = _env_int("RAG_CHUNK_OVERLAP", 100)
+RAG_EMBED_BATCH_SIZE: int = _env_int("RAG_EMBED_BATCH_SIZE", 20)
+RAG_MAX_BOOK_CHARS: int = _env_int("RAG_MAX_BOOK_CHARS", 500_000)
