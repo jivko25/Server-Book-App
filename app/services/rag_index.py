@@ -87,6 +87,7 @@ def _insert_passages(book_id: str, chunks: list[TextChunk], vectors: list[list[f
             "chapter_id": chunk.chapter_id,
             "chapter_numeral": chunk.chapter_numeral,
             "chapter_title": chunk.chapter_title,
+            "chunk_index": chunk.chunk_index,
             "text": chunk.text,
             "start_char": chunk.start_char,
             "embedding": vector,
