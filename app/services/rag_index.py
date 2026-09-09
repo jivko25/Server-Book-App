@@ -3,14 +3,8 @@ from __future__ import annotations
 import logging
 
 from app.config import RAG_CHUNK_OVERLAP, RAG_CHUNK_SIZE, RAG_MAX_BATCH_CHARS
-from app.services.gemini import (
-    GeminiAuthError,
-    GeminiConfigurationError,
-    GeminiQuotaError,
-    GeminiUpstreamError,
-)
 from app.services.rag_chunker import TextChunk, chunk_book
-from app.services.rag_embeddings import embed_passages
+from app.services.rag_embeddings import EmbedError, embed_passages
 from app.services.supabase_client import get_supabase_client
 
 logger = logging.getLogger(__name__)
@@ -159,13 +153,7 @@ def index_batch(*, book_id: str, chapters: list[dict]) -> dict:
             "totalPassageCount": total,
             "status": "indexing",
         }
-    except (
-        GeminiConfigurationError,
-        GeminiQuotaError,
-        GeminiAuthError,
-        GeminiUpstreamError,
-        RagBatchTooLargeError,
-    ):
+    except (EmbedError, RagBatchTooLargeError):
         raise
     except Exception as exc:
         logger.exception("RAG batch indexing failed for book %s", book_id)

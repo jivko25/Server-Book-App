@@ -40,14 +40,11 @@ RULIT_REQUEST_TIMEOUT_SECONDS: float = float(
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
 SUPABASE_SECRET_KEY: str = os.getenv("SUPABASE_SECRET_KEY", "").strip()
 
-GEMINI_EMBEDDING_MODEL: str = os.getenv(
-    "GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"
+RAG_LOCAL_EMBED_MODEL: str = os.getenv(
+    "RAG_LOCAL_EMBED_MODEL",
+    "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
 ).strip()
 RAG_CHUNK_SIZE: int = _env_int("RAG_CHUNK_SIZE", 1500)
 RAG_CHUNK_OVERLAP: int = _env_int("RAG_CHUNK_OVERLAP", 150)
-RAG_EMBED_BATCH_SIZE: int = _env_int("RAG_EMBED_BATCH_SIZE", 20)
-RAG_EMBED_BATCH_DELAY_SECONDS: float = float(
-    os.getenv("RAG_EMBED_BATCH_DELAY_SECONDS", "2")
-)
-RAG_EMBED_RETRY_MAX: int = _env_int("RAG_EMBED_RETRY_MAX", 5)
+RAG_EMBED_BATCH_SIZE: int = _env_int("RAG_EMBED_BATCH_SIZE", 64)
 RAG_MAX_BATCH_CHARS: int = _env_int("RAG_MAX_BATCH_CHARS", 120_000)

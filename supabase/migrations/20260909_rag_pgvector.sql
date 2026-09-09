@@ -18,7 +18,7 @@ create table if not exists public.rag_books (
 );
 
 -- ---------------------------------------------------------------------------
--- Text chunks + embeddings (Gemini text-embedding-004 = 768 dimensions)
+-- Text chunks + embeddings (local paraphrase-multilingual-mpnet-base-v2 = 768 dimensions)
 -- ---------------------------------------------------------------------------
 create table if not exists public.rag_passages (
   id uuid primary key default gen_random_uuid(),

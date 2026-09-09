@@ -10,12 +10,7 @@ from app.schemas_rag import (
     RagIndexStartResponse,
     RagIndexStatusResponse,
 )
-from app.services.gemini import (
-    GeminiAuthError,
-    GeminiConfigurationError,
-    GeminiQuotaError,
-    GeminiUpstreamError,
-)
+from app.services.rag_embeddings import EmbedError
 from app.services.rag_index import (
     RagBatchTooLargeError,
     RagIndexFailedError,
@@ -42,20 +37,13 @@ def _ensure_supabase() -> None:
         )
 
 
-def _map_gemini_errors(exc: Exception) -> HTTPException:
-    if isinstance(exc, GeminiConfigurationError):
-        return HTTPException(status_code=503, detail=str(exc))
-    if isinstance(exc, GeminiQuotaError):
+def _map_rag_errors(exc: Exception) -> HTTPException:
+    if isinstance(exc, EmbedError):
         return HTTPException(
-            status_code=429,
-            detail="Gemini API quota exceeded. Please try again later.",
+            status_code=502,
+            detail="Local embedding failed while indexing this book.",
         )
-    if isinstance(exc, GeminiAuthError):
-        return HTTPException(
-            status_code=exc.status_code,
-            detail="Invalid or unauthorized Gemini API key.",
-        )
-    if isinstance(exc, (GeminiUpstreamError, RagIndexFailedError)):
+    if isinstance(exc, RagIndexFailedError):
         return HTTPException(status_code=502, detail="Failed to index book for RAG chat.")
     if isinstance(exc, RagBatchTooLargeError):
         return HTTPException(status_code=413, detail=str(exc))
@@ -86,7 +74,7 @@ def create_index_start(body: RagIndexStartRequest) -> RagIndexStartResponse:
     try:
         result = start_index(book_id=body.bookId, title=body.title)
     except Exception as exc:
-        raise _map_gemini_errors(exc) from exc
+        raise _map_rag_errors(exc) from exc
     return RagIndexStartResponse.model_validate(result)
 
 
@@ -106,7 +94,7 @@ def create_index_batch(book_id: str, body: RagIndexBatchRequest) -> RagIndexBatc
     try:
         result = index_batch(book_id=book_id, chapters=_chapter_payload(body.chapters))
     except Exception as exc:
-        raise _map_gemini_errors(exc) from exc
+        raise _map_rag_errors(exc) from exc
     return RagIndexBatchResponse.model_validate(result)
 
 
@@ -124,7 +112,7 @@ def create_index_complete(book_id: str) -> RagIndexResponse:
     try:
         result = complete_index(book_id=book_id)
     except Exception as exc:
-        raise _map_gemini_errors(exc) from exc
+        raise _map_rag_errors(exc) from exc
     return RagIndexResponse.model_validate(result)
 
 
@@ -149,7 +137,7 @@ def create_index(body: RagIndexRequest) -> RagIndexResponse:
             chapters=_chapter_payload(body.chapters),
         )
     except Exception as exc:
-        raise _map_gemini_errors(exc) from exc
+        raise _map_rag_errors(exc) from exc
     return RagIndexResponse.model_validate(result)
 
 
