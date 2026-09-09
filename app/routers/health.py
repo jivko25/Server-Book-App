@@ -6,6 +6,7 @@ from app.services.supabase_client import check_supabase_connection
 
 router = APIRouter(tags=["health"])
 
+
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     supabase_status, supabase_detail = check_supabase_connection()
