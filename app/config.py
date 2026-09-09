@@ -36,3 +36,6 @@ RULIT_RATE_LIMIT_PER_MINUTE: int = _env_int("RULIT_RATE_LIMIT_PER_MINUTE", 30)
 RULIT_REQUEST_TIMEOUT_SECONDS: float = float(
     os.getenv("RULIT_REQUEST_TIMEOUT_SECONDS", "10")
 )
+
+SUPABASE_URL: str = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+SUPABASE_SECRET_KEY: str = os.getenv("SUPABASE_SECRET_KEY", "").strip()

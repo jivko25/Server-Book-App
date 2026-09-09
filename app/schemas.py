@@ -32,6 +32,8 @@ class SummaryResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     model: str
+    supabase: str
+    supabaseDetail: str | None = None
 
 
 class ErrorResponse(BaseModel):
