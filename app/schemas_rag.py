@@ -36,6 +36,25 @@ class RagIndexStartResponse(BaseModel):
     status: str
 
 
+class RagRegisterBookRequest(BaseModel):
+    bookId: str = Field(..., min_length=1, max_length=128)
+    title: str = Field(..., min_length=1, max_length=300)
+
+
+class RagRegisterBookResponse(BaseModel):
+    bookId: str
+    title: str
+    status: str
+    passageCount: int
+
+
+class RagChapterIndexStatusResponse(BaseModel):
+    bookId: str
+    chapterId: int
+    passageCount: int
+    status: str
+
+
 class RagIndexBatchResponse(BaseModel):
     bookId: str
     batchPassageCount: int

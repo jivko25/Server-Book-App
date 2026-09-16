@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.schemas import ErrorResponse
 from app.schemas_rag import (
+    RagChapterIndexStatusResponse,
     RagIndexBatchRequest,
     RagIndexBatchResponse,
     RagIndexRequest,
@@ -9,6 +10,8 @@ from app.schemas_rag import (
     RagIndexStartRequest,
     RagIndexStartResponse,
     RagIndexStatusResponse,
+    RagRegisterBookRequest,
+    RagRegisterBookResponse,
 )
 from app.services.gemini import (
     GeminiAuthError,
@@ -21,9 +24,11 @@ from app.services.rag_index import (
     RagIndexFailedError,
     RagIndexNotFoundError,
     complete_index,
+    get_chapter_index_status,
     get_index_status,
     index_batch,
     index_book,
+    register_book,
     start_index,
 )
 from app.services.supabase_client import check_supabase_connection
@@ -80,6 +85,36 @@ def _chapter_payload(chapters: list) -> list[dict]:
         }
         for chapter in chapters
     ]
+
+
+@router.post(
+    "/index/register",
+    response_model=RagRegisterBookResponse,
+    responses={502: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+)
+def create_index_register(body: RagRegisterBookRequest) -> RagRegisterBookResponse:
+    _ensure_supabase()
+    try:
+        result = register_book(book_id=body.bookId, title=body.title)
+    except Exception as exc:
+        raise _map_rag_errors(exc) from exc
+    return RagRegisterBookResponse.model_validate(result)
+
+
+@router.get(
+    "/index/{book_id}/chapters/{chapter_id}",
+    response_model=RagChapterIndexStatusResponse,
+    responses={404: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+)
+def read_chapter_index_status(book_id: str, chapter_id: int) -> RagChapterIndexStatusResponse:
+    _ensure_supabase()
+    if chapter_id < 1:
+        raise HTTPException(status_code=422, detail="chapter_id must be >= 1")
+    try:
+        result = get_chapter_index_status(book_id=book_id, chapter_id=chapter_id)
+    except RagIndexNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return RagChapterIndexStatusResponse.model_validate(result)
 
 
 @router.post(

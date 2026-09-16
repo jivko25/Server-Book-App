@@ -184,6 +184,67 @@ def _update_passage_count(book_id: str, passage_count: int) -> None:
     ).execute()
 
 
+def _delete_chapter_passages(book_id: str, chapter_id: int) -> None:
+    client = get_supabase_client()
+    client.table("rag_passages").delete().eq("book_id", book_id).eq(
+        "chapter_id", chapter_id
+    ).execute()
+
+
+def register_book(*, book_id: str, title: str) -> dict:
+    """Register a book for incremental (per-chapter) indexing without wiping passages."""
+    client = get_supabase_client()
+    existing = _get_book_row(book_id)
+    if existing is None:
+        client.table("rag_books").insert(
+            {
+                "id": book_id,
+                "title": title,
+                "status": "indexing",
+                "passage_count": 0,
+            }
+        ).execute()
+        status = "indexing"
+        passage_count = 0
+    else:
+        status = existing.get("status", "indexing")
+        if status == "failed":
+            status = "indexing"
+        client.table("rag_books").update({"title": title, "status": status}).eq(
+            "id", book_id
+        ).execute()
+        passage_count = existing.get("passage_count", 0)
+
+    return {
+        "bookId": book_id,
+        "title": title,
+        "status": status,
+        "passageCount": passage_count,
+    }
+
+
+def get_chapter_index_status(*, book_id: str, chapter_id: int) -> dict:
+    client = get_supabase_client()
+    book = _get_book_row(book_id)
+    if book is None:
+        raise RagIndexNotFoundError("Book index not registered.")
+
+    result = (
+        client.table("rag_passages")
+        .select("id", count="exact")
+        .eq("book_id", book_id)
+        .eq("chapter_id", chapter_id)
+        .execute()
+    )
+    passage_count = result.count or 0
+    return {
+        "bookId": book_id,
+        "chapterId": chapter_id,
+        "passageCount": passage_count,
+        "status": "ready" if passage_count > 0 else "missing",
+    }
+
+
 def start_index(*, book_id: str, title: str) -> dict:
     client = get_supabase_client()
     client.table("rag_books").upsert(
@@ -211,6 +272,10 @@ def index_batch(*, book_id: str, chapters: list[dict]) -> dict:
 
     title = book["title"]
     try:
+        for chapter in chapters:
+            if int(chapter.get("contentOffset") or 0) == 0:
+                _delete_chapter_passages(book_id, int(chapter["id"]))
+
         chunks = chunk_book(
             chapters,
             chunk_size=RAG_CHUNK_SIZE,
@@ -254,7 +319,6 @@ def index_batch(*, book_id: str, chapters: list[dict]) -> dict:
         raise
     except Exception as exc:
         logger.exception("RAG batch indexing failed for book %s", book_id)
-        _mark_book_failed(book_id, title, str(exc))
         raise RagIndexFailedError(str(exc), book_id=book_id) from exc
 
 
