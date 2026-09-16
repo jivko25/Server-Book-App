@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from google.genai import errors, types
+from postgrest.exceptions import APIError
 
 from app.config import (
     GEMINI_MODEL,
@@ -18,6 +19,7 @@ from app.services.gemini import (
     _map_client_error,
 )
 from app.services.rag_embeddings import embed_query
+from app.services.rag_vector import cosine_similarity, parse_embedding
 from app.services.supabase_client import get_supabase_client
 
 logger = logging.getLogger(__name__)
@@ -54,7 +56,7 @@ def _format_excerpt_block(rows: list[dict]) -> str:
     return "\n\n".join(parts) if parts else ""
 
 
-def _match_passages(
+def _match_passages_via_rpc(
     *,
     book_id: str,
     chapter_id: int,
@@ -74,6 +76,71 @@ def _match_passages(
     chapter_rows = [row for row in rows if int(row.get("chapter_id", -1)) == chapter_id]
     chapter_rows.sort(key=lambda row: float(row.get("similarity") or 0), reverse=True)
     return chapter_rows[:RAG_ASK_MATCH_COUNT]
+
+
+def _match_passages_in_chapter(
+    *,
+    book_id: str,
+    chapter_id: int,
+    query_embedding: list[float],
+) -> list[dict]:
+    """Rank passages in one chapter without PostgREST RPC (works if SQL fn missing)."""
+    client = get_supabase_client()
+    result = (
+        client.table("rag_passages")
+        .select(
+            "id, chapter_id, chapter_numeral, chapter_title, chunk_index, text, start_char, embedding"
+        )
+        .eq("book_id", book_id)
+        .eq("chapter_id", chapter_id)
+        .execute()
+    )
+
+    scored: list[dict] = []
+    for row in result.data or []:
+        try:
+            passage_embedding = parse_embedding(row.get("embedding"))
+            similarity = cosine_similarity(query_embedding, passage_embedding)
+        except ValueError:
+            logger.warning(
+                "Skipping passage with invalid embedding book=%s chapter=%s chunk=%s",
+                book_id,
+                chapter_id,
+                row.get("chunk_index"),
+            )
+            continue
+        scored.append({**row, "similarity": similarity})
+
+    scored.sort(key=lambda item: float(item.get("similarity") or 0), reverse=True)
+    return scored[:RAG_ASK_MATCH_COUNT]
+
+
+def _match_passages(
+    *,
+    book_id: str,
+    chapter_id: int,
+    query_embedding: list[float],
+) -> list[dict]:
+    try:
+        return _match_passages_via_rpc(
+            book_id=book_id,
+            chapter_id=chapter_id,
+            query_embedding=query_embedding,
+        )
+    except APIError as exc:
+        payload = exc.args[0] if exc.args and isinstance(exc.args[0], dict) else {}
+        code = payload.get("code")
+        if code != "PGRST202":
+            raise
+        logger.warning(
+            "match_rag_passages RPC unavailable; using in-process chapter search"
+        )
+
+    return _match_passages_in_chapter(
+        book_id=book_id,
+        chapter_id=chapter_id,
+        query_embedding=query_embedding,
+    )
 
 
 def _generate_answer(
