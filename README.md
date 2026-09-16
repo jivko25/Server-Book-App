@@ -71,23 +71,23 @@ Summary is returned in the **same language** as `chapter_text`.
 | `RULIT_CACHE_TTL_SECONDS` | `1800` | In-memory cache TTL (15–60 min) |
 | `RULIT_RATE_LIMIT_PER_MINUTE` | `30` | Per-IP limit on `/api/rulit/*` |
 | `RULIT_REQUEST_TIMEOUT_SECONDS` | `10` | Upstream scrape timeout |
-| `RAG_LOCAL_EMBED_MODEL` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | ONNX embedder for RAG indexing (768 dims, ~50 langs) |
-| `RAG_EMBED_BATCH_SIZE` | `64` | Passages embedded per local batch |
+| `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-001` | Gemini embedder for RAG indexing (768 dims) |
+| `RAG_EMBED_BATCH_SIZE` | `20` | Passages embedded per Gemini batch |
+| `RAG_EMBED_BATCH_DELAY_SECONDS` | `2` | Pause between embed batches (quota safety) |
+| `RAG_EMBED_RETRY_MAX` | `5` | Retries on Gemini 429 quota errors |
 | `RAG_MAX_BATCH_CHARS` | `120000` | Max chapter text per mobile batch request |
 
 ## RAG indexing
 
-Book chat indexing uses a **local ONNX embedder** ([fastembed](https://github.com/qdrant/fastembed)) — no Gemini API calls, no embedding quota.
+Book chat indexing uses **Gemini embeddings** (`gemini-embedding-001`, 768 dimensions) — works on Vercel serverless without heavy local models.
 
 Flow:
 
 1. Mobile sends chapter text in batches (`/api/rag/index/start` → `/batch` → `/complete`)
-2. Backend chunks passages (~1500 chars) and embeds them locally
+2. Backend chunks passages (~1500 chars) and embeds them via Gemini
 3. Vectors (768-dim) are stored in Supabase pgvector
 
-Gemini is still used only for **chapter summaries** (`/api/summary`).
-
-> **Note:** First request after cold start downloads the ONNX model (~100–200 MB). Warm instances reuse the cached model.
+Gemini is also used for **chapter summaries** (`/api/summary`).
 
 ## Cache behavior
 

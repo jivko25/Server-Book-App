@@ -10,7 +10,12 @@ from app.schemas_rag import (
     RagIndexStartResponse,
     RagIndexStatusResponse,
 )
-from app.services.rag_embeddings import EmbedError
+from app.services.gemini import (
+    GeminiAuthError,
+    GeminiConfigurationError,
+    GeminiQuotaError,
+    GeminiUpstreamError,
+)
 from app.services.rag_index import (
     RagBatchTooLargeError,
     RagIndexFailedError,
@@ -38,10 +43,22 @@ def _ensure_supabase() -> None:
 
 
 def _map_rag_errors(exc: Exception) -> HTTPException:
-    if isinstance(exc, EmbedError):
+    if isinstance(exc, GeminiConfigurationError):
+        return HTTPException(status_code=503, detail=str(exc))
+    if isinstance(exc, GeminiQuotaError):
+        return HTTPException(
+            status_code=429,
+            detail="Gemini API quota exceeded. Please try again later.",
+        )
+    if isinstance(exc, GeminiAuthError):
+        return HTTPException(
+            status_code=exc.status_code,
+            detail="Invalid or unauthorized Gemini API key.",
+        )
+    if isinstance(exc, GeminiUpstreamError):
         return HTTPException(
             status_code=502,
-            detail="Local embedding failed while indexing this book.",
+            detail="Gemini embedding failed while indexing this book.",
         )
     if isinstance(exc, RagIndexFailedError):
         return HTTPException(status_code=502, detail="Failed to index book for RAG chat.")
