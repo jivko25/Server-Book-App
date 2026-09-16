@@ -6,6 +6,11 @@ class RagChapterInput(BaseModel):
     numeral: str | None = None
     title: str | None = None
     content: str = Field(..., min_length=1)
+    contentOffset: int = Field(
+        0,
+        ge=0,
+        description="Character offset in the full chapter when content is a segment.",
+    )
 
 
 class RagIndexStartRequest(BaseModel):

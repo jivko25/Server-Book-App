@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 
-from app.config import RAG_CHUNK_OVERLAP, RAG_CHUNK_SIZE, RAG_MAX_BATCH_CHARS
+from app.config import (
+    RAG_CHUNK_OVERLAP,
+    RAG_CHUNK_SIZE,
+    RAG_MAX_BATCH_CHARS,
+    RAG_MAX_PASSAGES_PER_BATCH,
+)
 from app.services.rag_chunker import TextChunk, chunk_book
 from app.services.gemini import (
     GeminiAuthError,
@@ -40,12 +46,83 @@ def _batch_char_count(chapters: list[dict]) -> int:
     return sum(len(chapter["content"]) for chapter in chapters)
 
 
+def _estimate_passage_count(chapters: list[dict]) -> int:
+    stride = max(1, RAG_CHUNK_SIZE - RAG_CHUNK_OVERLAP)
+    total = 0
+    for chapter in chapters:
+        length = len(chapter["content"].strip())
+        if length:
+            total += max(1, (length + stride - 1) // stride)
+    return total
+
+
 def _validate_batch_size(chapters: list[dict]) -> None:
     if _batch_char_count(chapters) > RAG_MAX_BATCH_CHARS:
         raise RagBatchTooLargeError(
             f"Batch exceeds max size of {RAG_MAX_BATCH_CHARS} characters. "
             "Send fewer or shorter chapters per batch."
         )
+    estimated = _estimate_passage_count(chapters)
+    if estimated > RAG_MAX_PASSAGES_PER_BATCH:
+        raise RagBatchTooLargeError(
+            f"Batch would create ~{estimated} passages; "
+            f"max is {RAG_MAX_PASSAGES_PER_BATCH} per request."
+        )
+
+
+def _max_chunk_index_by_chapter(book_id: str, chapter_ids: set[int]) -> dict[int, int]:
+    if not chapter_ids:
+        return {}
+    client = get_supabase_client()
+    result = (
+        client.table("rag_passages")
+        .select("chapter_id, chunk_index")
+        .eq("book_id", book_id)
+        .in_("chapter_id", list(chapter_ids))
+        .execute()
+    )
+    max_by: dict[int, int] = {}
+    for row in result.data or []:
+        chapter_id = int(row["chapter_id"])
+        chunk_index = int(row["chunk_index"])
+        max_by[chapter_id] = max(max_by.get(chapter_id, -1), chunk_index)
+    return max_by
+
+
+def _assign_global_chunk_indices(
+    *,
+    book_id: str,
+    chapters: list[dict],
+    chunks: list[TextChunk],
+) -> list[TextChunk]:
+    if not chunks:
+        return []
+
+    offsets = {int(ch["id"]): int(ch.get("contentOffset") or 0) for ch in chapters}
+    max_indices = _max_chunk_index_by_chapter(
+        book_id, {chunk.chapter_id for chunk in chunks}
+    )
+
+    by_chapter: dict[int, list[TextChunk]] = {}
+    for chunk in chunks:
+        by_chapter.setdefault(chunk.chapter_id, []).append(chunk)
+
+    adjusted: list[TextChunk] = []
+    for chapter_id, chapter_chunks in by_chapter.items():
+        chapter_chunks.sort(
+            key=lambda c: (offsets.get(chapter_id, 0) + c.start_char, c.chunk_index)
+        )
+        base = max_indices.get(chapter_id, -1) + 1
+        content_offset = offsets.get(chapter_id, 0)
+        for index, chunk in enumerate(chapter_chunks):
+            adjusted.append(
+                replace(
+                    chunk,
+                    chunk_index=base + index,
+                    start_char=content_offset + chunk.start_char,
+                )
+            )
+    return adjusted
 
 
 def _mark_book_failed(book_id: str, title: str, message: str) -> None:
@@ -138,6 +215,14 @@ def index_batch(*, book_id: str, chapters: list[dict]) -> dict:
             chapters,
             chunk_size=RAG_CHUNK_SIZE,
             chunk_overlap=RAG_CHUNK_OVERLAP,
+        )
+        if len(chunks) > RAG_MAX_PASSAGES_PER_BATCH:
+            raise RagBatchTooLargeError(
+                f"Batch produced {len(chunks)} passages; "
+                f"max is {RAG_MAX_PASSAGES_PER_BATCH} per request."
+            )
+        chunks = _assign_global_chunk_indices(
+            book_id=book_id, chapters=chapters, chunks=chunks
         )
         if not chunks:
             return {

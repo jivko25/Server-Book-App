@@ -75,7 +75,8 @@ Summary is returned in the **same language** as `chapter_text`.
 | `RAG_EMBED_BATCH_SIZE` | `20` | Passages embedded per Gemini batch |
 | `RAG_EMBED_BATCH_DELAY_SECONDS` | `2` | Pause between embed batches (quota safety) |
 | `RAG_EMBED_RETRY_MAX` | `5` | Retries on Gemini 429 quota errors |
-| `RAG_MAX_BATCH_CHARS` | `120000` | Max chapter text per mobile batch request |
+| `RAG_MAX_BATCH_CHARS` | `28000` | Max text per `/batch` request (Vercel 30s budget) |
+| `RAG_MAX_PASSAGES_PER_BATCH` | `22` | Max passage chunks embedded per request |
 
 ## RAG indexing
 

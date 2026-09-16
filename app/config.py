@@ -50,4 +50,6 @@ RAG_EMBED_BATCH_DELAY_SECONDS: float = float(
     os.getenv("RAG_EMBED_BATCH_DELAY_SECONDS", "2")
 )
 RAG_EMBED_RETRY_MAX: int = _env_int("RAG_EMBED_RETRY_MAX", 5)
-RAG_MAX_BATCH_CHARS: int = _env_int("RAG_MAX_BATCH_CHARS", 120_000)
+# Keep batches small enough for Vercel 30s limit (chunk + Gemini embed).
+RAG_MAX_BATCH_CHARS: int = _env_int("RAG_MAX_BATCH_CHARS", 28_000)
+RAG_MAX_PASSAGES_PER_BATCH: int = _env_int("RAG_MAX_PASSAGES_PER_BATCH", 22)

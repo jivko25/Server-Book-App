@@ -76,6 +76,7 @@ def _chapter_payload(chapters: list) -> list[dict]:
             "numeral": chapter.numeral,
             "title": chapter.title,
             "content": chapter.content,
+            "contentOffset": chapter.contentOffset,
         }
         for chapter in chapters
     ]
