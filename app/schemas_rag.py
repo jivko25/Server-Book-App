@@ -55,6 +55,29 @@ class RagChapterIndexStatusResponse(BaseModel):
     status: str
 
 
+class RagAskCitation(BaseModel):
+    chunkIndex: int
+    text: str
+    similarity: float
+
+
+class RagAskRequest(BaseModel):
+    bookId: str = Field(..., min_length=1, max_length=128)
+    chapterId: int = Field(..., ge=1)
+    question: str = Field(..., min_length=2, max_length=2000)
+    bookTitle: str | None = Field(default=None, max_length=300)
+    chapterTitle: str | None = Field(default=None, max_length=300)
+    chapterNumeral: str | None = Field(default=None, max_length=32)
+
+
+class RagAskResponse(BaseModel):
+    bookId: str
+    chapterId: int
+    question: str
+    answer: str
+    citations: list[RagAskCitation]
+
+
 class RagIndexBatchResponse(BaseModel):
     bookId: str
     batchPassageCount: int

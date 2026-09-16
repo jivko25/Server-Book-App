@@ -53,3 +53,6 @@ RAG_EMBED_RETRY_MAX: int = _env_int("RAG_EMBED_RETRY_MAX", 5)
 # Keep batches small enough for Vercel 30s limit (chunk + Gemini embed).
 RAG_MAX_BATCH_CHARS: int = _env_int("RAG_MAX_BATCH_CHARS", 15_000)
 RAG_MAX_PASSAGES_PER_BATCH: int = _env_int("RAG_MAX_PASSAGES_PER_BATCH", 12)
+RAG_ASK_MATCH_COUNT: int = _env_int("RAG_ASK_MATCH_COUNT", 8)
+RAG_ASK_MATCH_POOL: int = _env_int("RAG_ASK_MATCH_POOL", 24)
+RAG_ASK_MAX_OUTPUT_TOKENS: int = _env_int("RAG_ASK_MAX_OUTPUT_TOKENS", 1024)

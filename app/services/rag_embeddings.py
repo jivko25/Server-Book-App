@@ -94,3 +94,36 @@ def embed_passages(texts: list[str]) -> list[list[float]]:
         raise GeminiUpstreamError("Embedding count mismatch")
 
     return all_vectors
+
+
+def embed_query(text: str) -> list[float]:
+    trimmed = text.strip()
+    if not trimmed:
+        raise GeminiUpstreamError("Question is empty")
+
+    client = _build_client()
+    config = types.EmbedContentConfig(
+        task_type="RETRIEVAL_QUERY",
+        output_dimensionality=EMBED_DIMENSIONS,
+    )
+
+    try:
+        response = client.models.embed_content(
+            model=GEMINI_EMBEDDING_MODEL,
+            contents=[trimmed],
+            config=config,
+        )
+    except errors.ClientError as exc:
+        raise _map_client_error(exc) from exc
+    except Exception as exc:
+        raise GeminiUpstreamError(str(exc)) from exc
+
+    if not response.embeddings:
+        raise GeminiUpstreamError("Gemini returned no query embedding")
+
+    values = response.embeddings[0].values or []
+    if len(values) != EMBED_DIMENSIONS:
+        raise GeminiUpstreamError(
+            f"Unexpected embedding size: {len(values)} (expected {EMBED_DIMENSIONS})"
+        )
+    return list(values)

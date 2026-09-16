@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException
 
 from app.schemas import ErrorResponse
 from app.schemas_rag import (
+    RagAskRequest,
+    RagAskResponse,
     RagChapterIndexStatusResponse,
     RagIndexBatchRequest,
     RagIndexBatchResponse,
@@ -19,6 +21,7 @@ from app.services.gemini import (
     GeminiQuotaError,
     GeminiUpstreamError,
 )
+from app.services.rag_ask import RagChapterNotIndexedError, ask_chapter
 from app.services.rag_index import (
     RagBatchTooLargeError,
     RagIndexFailedError,
@@ -71,6 +74,8 @@ def _map_rag_errors(exc: Exception) -> HTTPException:
         return HTTPException(status_code=413, detail=str(exc))
     if isinstance(exc, RagIndexNotFoundError):
         return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, RagChapterNotIndexedError):
+        return HTTPException(status_code=409, detail=str(exc))
     raise exc
 
 
@@ -99,6 +104,32 @@ def create_index_register(body: RagRegisterBookRequest) -> RagRegisterBookRespon
     except Exception as exc:
         raise _map_rag_errors(exc) from exc
     return RagRegisterBookResponse.model_validate(result)
+
+
+@router.post(
+    "/ask",
+    response_model=RagAskResponse,
+    responses={
+        409: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
+        502: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+def create_rag_ask(body: RagAskRequest) -> RagAskResponse:
+    _ensure_supabase()
+    try:
+        result = ask_chapter(
+            book_id=body.bookId,
+            chapter_id=body.chapterId,
+            question=body.question,
+            book_title=body.bookTitle,
+            chapter_title=body.chapterTitle,
+            chapter_numeral=body.chapterNumeral,
+        )
+    except Exception as exc:
+        raise _map_rag_errors(exc) from exc
+    return RagAskResponse.model_validate(result)
 
 
 @router.get(
